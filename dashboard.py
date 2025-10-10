@@ -8,24 +8,40 @@ from ortools.constraint_solver import pywrapcp
 import folium
 from streamlit_folium import st_folium
 
+# --- Sayfa Ayarları (En başta olmalı) ---
 st.set_page_config(
     page_title="Akıllı Atık Yönetimi Dashboard'u",
     page_icon="🚛",
     layout="wide"
 )
 
+# --- VERİ VE MODELLERİN ÖNBELLEĞE ALINMASI (CACHE) ---
+# Bu fonksiyonlar, sayfa her yenilendiğinde tekrar tekrar çalışmaz,
+# sadece ilk seferde çalışır ve sonuçları hafızada tutar. Bu, hızı artırır.
+
 @st.cache_data
 def load_data():
+    """Veri setini GitHub Releases üzerinden URL'den yükler."""
+    
+    # !!! DEĞİŞTİRİLECEK ALAN !!!
+    # GitHub'dan kopyaladığınız direkt indirme linkini aşağıdaki tırnak işaretlerinin arasına yapıştırın.
+    # Örnek link yapısı: "https://github.com/KULLANICI-ADINIZ/REPO-ADINIZ/releases/download/v1.0/final_model_data.csv"
+    DATA_URL = "https://github.com/ilknuraycacicekk/turkcell_gryffindor/releases/download/v1.0/final_model_data.csv"
+    
     try:
-        df = pd.read_csv("final_model_data.csv")
+        st.info("Veri seti internet üzerinden (GitHub Releases) yükleniyor...")
+        df = pd.read_csv(DATA_URL) 
         df['tarih'] = pd.to_datetime(df['tarih'])
+        st.success("Veri seti başarıyla yüklendi! Model eğitiliyor...")
         return df
-    except FileNotFoundError:
-        st.error("'final_model_data.csv' dosyası bulunamadı.")
+    except Exception as e:
+        st.error(f"Veri internetten çekilirken bir hata oluştu: {e}")
+        st.error(f"Lütfen kopyaladığınız URL'in doğru olduğundan emin olun: {DATA_URL}")
         return None
 
 @st.cache_resource
 def train_model(df):
+    """Veri setini kullanarak Random Forest modelini eğitir."""
     df_processed = pd.get_dummies(df, columns=['mahalle'], drop_first=True)
     df_processed.drop('tarih', axis=1, inplace=True)
     df_processed.fillna(df_processed.mean(), inplace=True)
@@ -35,10 +51,12 @@ def train_model(df):
     
     final_model = RandomForestRegressor(n_estimators=100, random_state=42, n_jobs=-1)
     final_model.fit(X, y)
+    # Modeli ve modelin eğitildiği sütunların listesini döndür
     return final_model, X.columns
 
 @st.cache_data
 def predict_future_risks(_model, _columns):
+    """Gelecek hafta için risk skorlarını tahmin eder."""
     df_mahalleler = load_data()[['mahalle', 'nufus', 'toplam_yorum_sayisi', 'restaurant_sayisi', 'cafe_sayisi', 'supermarket_sayisi', 'school_sayisi', 'shopping_mall_sayisi', 'transit_station_sayisi']].drop_duplicates('mahalle')
     tahmin_tarihleri = [datetime.now().date() + timedelta(days=i) for i in range(1, 8)]
     hava_tahminleri = {
@@ -68,7 +86,6 @@ def predict_future_risks(_model, _columns):
     tahmin_icin_df['risk_skoru'] = _model.predict(tahmin_icin_df_processed)
     return tahmin_icin_df
 
-# *** HATANIN OLDUĞU BÖLÜM DÜZELTİLDİ ***
 mahalle_koordinatlari = {
     "ACIBADEM": [41.007, 29.056], "AHMEDİYE": [41.023, 29.020], "ALTUNİZADE": [41.020, 29.043],
     "AZİZ MAHMUT HÜDAYİ": [41.025, 29.017], "BAHÇELİEVLER": [41.050, 29.071], "BARBAROS": [41.025, 29.040],
@@ -83,7 +100,6 @@ mahalle_koordinatlari = {
     "VALİDE-İ ATİK": [41.018, 29.027], "YAVUZTÜRK": [41.044, 29.081], "ZEYNEP KAMİL": [41.016, 29.023]
 }
 DEPO_KOORDINATI = [41.026, 29.023]
-# *** DÜZELTME SONU ***
 
 def run_optimization(gunun_riskleri):
     if gunun_riskleri.empty:
